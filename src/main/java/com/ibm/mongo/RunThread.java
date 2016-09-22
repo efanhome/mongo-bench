@@ -2,6 +2,7 @@ package com.ibm.mongo;
 
 import com.mongodb.MongoClient;
 import org.apache.commons.lang.RandomStringUtils;
+import org.apache.commons.lang.math.IntRange;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,12 @@ public class RunThread implements Runnable {
     private String data = RandomStringUtils.randomAlphabetic(1024);
     private final Document[] toRead = new Document[9];
     private int readIndex = 0;
+    private long maxReadLatency;
+    private long minReadLatency = Long.MAX_VALUE;
+    private float avgReadLatency;
+    private long maxWriteLatency;
+    private long minWriteLatency = Long.MAX_VALUE;
+    private float avgWriteLatency;
 
     public RunThread(String host, List<Integer> ports) {
         this.host = host;
@@ -65,13 +72,30 @@ public class RunThread implements Runnable {
     }
 
     private void insertRecord(MongoClient client) {
+        long start = System.currentTimeMillis();
         client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).insertOne(new Document("data", data));
+        long latency = System.currentTimeMillis() - start;
+        if (latency > maxWriteLatency) {
+            maxWriteLatency = latency;
+        }
+        if (latency < minWriteLatency) {
+            minWriteLatency = latency;
+        }
         numInserts++;
+        avgWriteLatency += latency/numInserts;
     }
 
     private void readRecord(MongoClient client) {
         final Document doc = toRead[readIndex];
+        long start = System.currentTimeMillis();
         final Document fetched = client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).find(toRead[readIndex]).first();
+        long latency = System.currentTimeMillis() - start;
+        if (latency > maxReadLatency) {
+            maxReadLatency = latency;
+        }
+        if (latency < minReadLatency) {
+            minReadLatency = latency;
+        }
         if (fetched == null) {
             log.warn("Unable to read document with id {}", doc.get("_id"));
         }
@@ -81,6 +105,7 @@ public class RunThread implements Runnable {
             readIndex++;
         }
         numReads++;
+        avgReadLatency += latency/numReads;
     }
 
     public void stop() {
@@ -93,5 +118,29 @@ public class RunThread implements Runnable {
 
     public int getNumReads() {
         return numReads;
+    }
+
+    public long getMaxReadLatency() {
+        return maxReadLatency;
+    }
+
+    public long getMinReadLatency() {
+        return minReadLatency;
+    }
+
+    public float getAvgReadLatency() {
+        return avgReadLatency;
+    }
+
+    public long getMaxWriteLatency() {
+        return maxWriteLatency;
+    }
+
+    public long getMinWriteLatency() {
+        return minWriteLatency;
+    }
+
+    public float getAvgWriteLatency() {
+        return avgWriteLatency;
     }
 }

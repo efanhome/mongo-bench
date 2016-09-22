@@ -119,12 +119,47 @@ public class MongoBench {
         for (final Thread t : threads.values()) {
             t.start();
         }
-        while (System.currentTimeMillis() - start < 1000 * duration) {
+        long lastInterval = start;
+        long currentMillis = System.currentTimeMillis();
+        while (currentMillis - start < 1000 * duration) {
+            if (currentMillis - lastInterval > 60000) {
+                long numInserts = 0;
+                long numReads = 0;
+                long maxReadLatency = 0;
+                long minReadLatency = Long.MAX_VALUE;
+                long maxWriteLatency = 0;
+                long minWriteLatency = Long.MAX_VALUE;
+                float avgReadLatency = 0f;
+                float avgWriteLatency = 0f;
+                for (final RunThread r : threads.keySet()) {
+                    numInserts += r.getNumInserts();
+                    numReads += r.getNumReads();
+                    if (r.getMaxReadLatency() > maxReadLatency) {
+                        maxReadLatency = r.getMaxReadLatency();
+                    }
+                    if (r.getMinReadLatency() < minReadLatency) {
+                        minReadLatency = r.getMinReadLatency();
+                    }
+                    if (r.getMinWriteLatency() < minWriteLatency)  {
+                        minWriteLatency = r.getMinWriteLatency();
+                    }
+                    if (r.getMaxWriteLatency() > maxWriteLatency) {
+                        maxWriteLatency = r.getMaxWriteLatency();
+                    }
+                    avgWriteLatency += r.getAvgWriteLatency();
+                    avgReadLatency += r.getAvgReadLatency();
+                }
+                avgReadLatency = avgReadLatency / threads.size();
+                avgWriteLatency = avgWriteLatency / threads.size();
+                log.info("{} inserts, {} reads, {} transactions/second {}/{}/{} read latencies {}/{}/{} write latencies", numInserts, numReads, decimalFormat.format((float) (numInserts + numReads) * 1000f / (float) (currentMillis -start)), minReadLatency, maxReadLatency, decimalFormat.format(avgReadLatency), minWriteLatency, maxWriteLatency, decimalFormat.format(avgWriteLatency));
+                lastInterval = currentMillis;
+            }
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
                 log.error("Unable to sleep", e);
             }
+            currentMillis = System.currentTimeMillis();
         }
         for (RunThread r : threads.keySet())  {
             r.stop();
@@ -167,51 +202,6 @@ public class MongoBench {
         return slices;
     }
 
-    private void doRunPhase(String host, int[] ports) {
-        final String data = RandomStringUtils.randomAlphabetic(1024);
-        log.info("Opening {} connections", ports.length);
-        final MongoClient[] clients = new MongoClient[ports.length];
-        for (int i = 0; i < ports.length; i++) {
-            clients[i] = new MongoClient(host, ports[i]);
-        }
-
-        log.info("Reading {} documents from {} instances", ports.length * 9, ports.length);
-        float[] rates = new float[ports.length];
-        int id = 0;
-        int clientIdx = 0;
-        long start = System.currentTimeMillis();
-        // read 9 documents per instance
-        for (int i = 0; i < ports.length * 9; i++) {
-            id = id < 1000 ? id++ : 1;
-            final MongoCollection<Document> collection = clients[clientIdx].getDatabase(DB_NAME).getCollection(COLLECTION_NAME);
-            final Document toFetch = new Document("_id", id);
-            final Document fetched = collection.find(toFetch).first();
-            if (fetched == null) {
-                log.error("Unable to fetch document with id {}", toFetch.get("_id"));
-            }
-            if (clientIdx < clients.length - 1) {
-                clientIdx++;
-            } else {
-                clientIdx = 0;
-            }
-        }
-
-        log.info("Inserting {} documents into {} instances", ports.length, ports.length);
-        // write 1 document per instance
-        final Document toInsert = new Document()
-                .append("data", data);
-        for (int i = 0; i < ports.length; i++) {
-            final MongoCollection<Document> collection = clients[i].getDatabase(DB_NAME).getCollection(COLLECTION_NAME);
-            collection.insertOne(toInsert);
-        }
-        long duration = System.currentTimeMillis() - start;
-        float rate = (float) ports.length * 10000f / (float) duration;
-        log.info("Finished {} requests in {} ms with rate {} transactions/sec", ports.length * 10, duration, decimalFormat.format(rate));
-        log.info("closing {} connections", clients.length);
-        for (MongoClient client : clients) {
-            client.close();
-        }
-    }
 
     private void doLoadPhase(String host, int[] ports) {
         log.info("Loading data into MongoDB");
