@@ -122,7 +122,7 @@ public class MongoBench {
         long lastInterval = start;
         long currentMillis = System.currentTimeMillis();
         while (currentMillis - start < 1000 * duration) {
-            if (currentMillis - lastInterval > 10000) {
+            if (currentMillis - lastInterval > 60000) {
                 int numInserts = 0, numReads = 0;
                 long minReadLatency = Long.MAX_VALUE, maxReadLatency = 0, minWriteLatency = Long.MAX_VALUE, maxWriteLatency = 0;
                 float avgReadLatency = 0f, avgWriteLatency = 0f, tps = 0f;
