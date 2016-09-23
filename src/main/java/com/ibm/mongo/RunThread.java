@@ -23,9 +23,12 @@ public class RunThread implements Runnable {
     private String data = RandomStringUtils.randomAlphabetic(1024);
     private final Document[] toRead = new Document[9];
     private int readIndex = 0;
-
-    private List<Long> readLatencies = new ArrayList<Long>();
-    private List<Long> writeLatencies = new ArrayList<Long>();
+    private long maxReadlatency = 0;
+    private long minReadLatency = Long.MAX_VALUE;
+    private long maxWriteLatency = 0;
+    private long minWriteLatency = Long.MAX_VALUE;
+    private float accReadLatencies = 0;
+    private float accWriteLatencies = 0;
 
     public RunThread(String host, List<Integer> ports) {
         this.host = host;
@@ -71,7 +74,14 @@ public class RunThread implements Runnable {
     private void insertRecord(MongoClient client) {
         long start = System.currentTimeMillis();
         client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).insertOne(new Document("data", data));
-        writeLatencies.add(System.currentTimeMillis() - start);
+        long latency = System.currentTimeMillis() - start;
+        if (latency < minWriteLatency) {
+            minWriteLatency = latency;
+        }
+        if (latency > maxWriteLatency) {
+            maxWriteLatency = latency;
+        }
+        accWriteLatencies+=latency;
         numInserts++;
     }
 
@@ -79,7 +89,14 @@ public class RunThread implements Runnable {
         final Document doc = toRead[readIndex];
         long start = System.currentTimeMillis();
         final Document fetched = client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).find(toRead[readIndex]).first();
-        readLatencies.add(System.currentTimeMillis() - start);
+        long latency = System.currentTimeMillis() - start;
+        if (latency < minReadLatency) {
+            minReadLatency = latency;
+        }
+        if (latency > maxReadlatency) {
+            maxReadlatency = latency;
+        }
+        accReadLatencies+=latency;
         if (fetched == null) {
             log.warn("Unable to read document with id {}", doc.get("_id"));
         }
@@ -103,19 +120,27 @@ public class RunThread implements Runnable {
         return numReads;
     }
 
-    public List<Long> getReadLatencies() {
-        synchronized (readLatencies) {
-            final List<Long> tmp = new ArrayList<Long>(readLatencies.size());
-            tmp.addAll(readLatencies);
-            return tmp;
-        }
+    public long getMaxReadlatency() {
+        return maxReadlatency;
     }
 
-    public List<Long> getWriteLatencies() {
-        synchronized (writeLatencies) {
-            final List<Long> tmp = new ArrayList<Long>(writeLatencies.size());
-            tmp.addAll(writeLatencies);
-            return tmp;
-        }
+    public long getMaxWriteLatency() {
+        return maxWriteLatency;
+    }
+
+    public long getMinReadLatency() {
+        return minReadLatency;
+    }
+
+    public long getMinWriteLatency() {
+        return minWriteLatency;
+    }
+
+    public float getAccReadLatencies() {
+        return accReadLatencies;
+    }
+
+    public float getAccWriteLatencies() {
+        return accWriteLatencies;
     }
 }

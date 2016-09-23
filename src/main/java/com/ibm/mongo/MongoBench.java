@@ -122,31 +122,27 @@ public class MongoBench {
         long lastInterval = start;
         long currentMillis = System.currentTimeMillis();
         while (currentMillis - start < 1000 * duration) {
-            if (currentMillis - lastInterval > 60000) {
+            if (currentMillis - lastInterval > 10000) {
                 int numInserts = 0, numReads = 0;
                 long minReadLatency = Long.MAX_VALUE, maxReadLatency = 0, minWriteLatency = Long.MAX_VALUE, maxWriteLatency = 0;
                 float avgReadLatency = 0f, avgWriteLatency = 0f, tps = 0f;
                 for (final RunThread r : threads.keySet()) {
                     numReads+=r.getNumReads();
                     numInserts+=r.getNumInserts();
-                    for (long readLatency : r.getReadLatencies()) {
-                        if (readLatency > maxReadLatency) {
-                            maxReadLatency = readLatency;
-                        }
-                        if (readLatency < minReadLatency) {
-                            minReadLatency = readLatency;
-                        }
-                        avgReadLatency += readLatency;
+                    if (r.getMaxReadlatency() > maxReadLatency) {
+                        maxReadLatency = r.getMaxReadlatency();
                     }
-                    for (long writeLatency : r.getWriteLatencies()) {
-                        if (writeLatency > maxWriteLatency) {
-                            maxWriteLatency = writeLatency;
-                        }
-                        if (writeLatency < minWriteLatency) {
-                            minWriteLatency = writeLatency;
-                        }
-                        avgWriteLatency += writeLatency;
+                    if (r.getMaxWriteLatency() > maxWriteLatency) {
+                        maxWriteLatency = r.getMaxWriteLatency();
                     }
+                    if (r.getMinReadLatency() < minReadLatency) {
+                        minReadLatency = r.getMinReadLatency();
+                    }
+                    if (r.getMinWriteLatency() < minWriteLatency) {
+                        minWriteLatency = r.getMinWriteLatency();
+                    }
+                    avgReadLatency += r.getAccReadLatencies();
+                    avgWriteLatency += r.getAccWriteLatencies();
                 }
                 avgReadLatency = avgReadLatency / numReads;
                 avgWriteLatency = avgWriteLatency / numInserts;
