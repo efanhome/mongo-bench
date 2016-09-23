@@ -19,7 +19,7 @@ public class MongoBench {
 
     public final static String COLLECTION_NAME = "mongo-bench-documents";
 
-    private final static DecimalFormat decimalFormat = new DecimalFormat("#.00");
+    private final static DecimalFormat decimalFormat = new DecimalFormat("0.00");
 
     private enum Phase {
         RUN, LOAD
@@ -123,35 +123,37 @@ public class MongoBench {
         long currentMillis = System.currentTimeMillis();
         while (currentMillis - start < 1000 * duration) {
             if (currentMillis - lastInterval > 60000) {
-                long numInserts = 0;
-                long numReads = 0;
-                long maxReadLatency = 0;
-                long minReadLatency = Long.MAX_VALUE;
-                long maxWriteLatency = 0;
-                long minWriteLatency = Long.MAX_VALUE;
-                float avgReadLatency = 0f;
-                float avgWriteLatency = 0f;
+                int numInserts = 0, numReads = 0;
+                long minReadLatency = Long.MAX_VALUE, maxReadLatency = 0, minWriteLatency = Long.MAX_VALUE, maxWriteLatency = 0;
+                float avgReadLatency = 0f, avgWriteLatency = 0f, tps = 0f;
                 for (final RunThread r : threads.keySet()) {
-                    numInserts += r.getNumInserts();
-                    numReads += r.getNumReads();
-                    if (r.getMaxReadLatency() > maxReadLatency) {
-                        maxReadLatency = r.getMaxReadLatency();
+                    numReads+=r.getNumReads();
+                    numInserts+=r.getNumInserts();
+                    for (long readLatency : r.getReadLatencies()) {
+                        if (readLatency > maxReadLatency) {
+                            maxReadLatency = readLatency;
+                        }
+                        if (readLatency < minReadLatency) {
+                            minReadLatency = readLatency;
+                        }
+                        avgReadLatency += readLatency;
                     }
-                    if (r.getMinReadLatency() < minReadLatency) {
-                        minReadLatency = r.getMinReadLatency();
+                    for (long writeLatency : r.getWriteLatencies()) {
+                        if (writeLatency > maxWriteLatency) {
+                            maxWriteLatency = writeLatency;
+                        }
+                        if (writeLatency < minWriteLatency) {
+                            minWriteLatency = writeLatency;
+                        }
+                        avgWriteLatency += writeLatency;
                     }
-                    if (r.getMinWriteLatency() < minWriteLatency)  {
-                        minWriteLatency = r.getMinWriteLatency();
-                    }
-                    if (r.getMaxWriteLatency() > maxWriteLatency) {
-                        maxWriteLatency = r.getMaxWriteLatency();
-                    }
-                    avgWriteLatency += r.getAvgWriteLatency();
-                    avgReadLatency += r.getAvgReadLatency();
                 }
-                avgReadLatency = avgReadLatency / threads.size();
-                avgWriteLatency = avgWriteLatency / threads.size();
-                log.info("{} inserts, {} reads, {} transactions/second {}/{}/{} read latencies {}/{}/{} write latencies", numInserts, numReads, decimalFormat.format((float) (numInserts + numReads) * 1000f / (float) (currentMillis -start)), minReadLatency, maxReadLatency, decimalFormat.format(avgReadLatency), minWriteLatency, maxWriteLatency, decimalFormat.format(avgWriteLatency));
+                avgReadLatency = avgReadLatency / numReads;
+                avgWriteLatency = avgWriteLatency / numInserts;
+                tps = (numInserts + numReads) * 1000f / (currentMillis - start);
+                log.info("{} inserts, {} reads, {} transactions/second [{}/{}/{}] ms read latencies [{}/{}/{}] ms write latencies", numInserts, numReads,
+                        decimalFormat.format(tps), minReadLatency, maxReadLatency, decimalFormat.format(avgReadLatency), minWriteLatency, maxWriteLatency,
+                        decimalFormat.format(avgWriteLatency));
                 lastInterval = currentMillis;
             }
             try {
