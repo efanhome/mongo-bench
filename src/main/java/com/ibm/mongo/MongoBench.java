@@ -1,10 +1,6 @@
 package com.ibm.mongo;
 
-import com.mongodb.MongoClient;
-import com.mongodb.client.MongoCollection;
 import org.apache.commons.cli.*;
-import org.apache.commons.lang.RandomStringUtils;
-import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +15,7 @@ public class MongoBench {
 
     public final static String COLLECTION_NAME = "mongo-bench-documents";
 
-    private final static DecimalFormat decimalFormat = new DecimalFormat("0.00");
+    private final static DecimalFormat decimalFormat = new DecimalFormat("0.0000");
 
     private enum Phase {
         RUN, LOAD
@@ -32,6 +28,9 @@ public class MongoBench {
         ops.addOption("l", "phase", true, "The phase to execute [run|load]");
         ops.addOption("d", "duration", true, "Run the bench for this many seconds");
         ops.addOption("n", "num-thread", true, "The number of threads to run");
+        ops.addOption("r", "reporting-interval", true, "The interval in seconds for reporting progress");
+        ops.addOption("c", "num-documents", true, "The number of documents to create during the load phase");
+        ops.addOption("s", "document-size", true, "The size of the created documents");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -40,6 +39,9 @@ public class MongoBench {
         final String host;
         int duration;
         int numThreads;
+        int reportingInterval;
+        int documentSize;
+        int numDocuments;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -90,30 +92,45 @@ public class MongoBench {
             } else {
                 numThreads = 1;
             }
+            if (cli.hasOption('r')) {
+                reportingInterval = Integer.parseInt(cli.getOptionValue('r'));
+            } else {
+                reportingInterval = 60;
+            }
+            if (cli.hasOption('c')) {
+                numDocuments = Integer.parseInt(cli.getOptionValue('c'));
+            } else {
+                numDocuments = 1000;
+            }
+            if (cli.hasOption('s')) {
+                documentSize = Integer.parseInt(cli.getOptionValue('s'));
+            } else {
+                documentSize = 1024;
+            }
 
-            log.info("Running phase {} against host {} on {} ports for {} seconds", phase.name(), host, ports.length, duration);
+            log.info("Running phase {}", phase.name());
 
             final MongoBench bench = new MongoBench();
             if (phase == Phase.LOAD) {
-                bench.doLoadPhase(host, ports);
+                bench.doLoadPhase(host, ports, numThreads, numDocuments, documentSize);
             } else {
                 if (numThreads > ports.length) {
                     throw new ParseException("Number of threads must be smaller than number of ports");
                 }
-                bench.doRunPhase(host, ports, duration, numThreads);
+                bench.doRunPhase(host, ports, duration, numThreads, reportingInterval);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int duration, int numThreads) {
+    private void doRunPhase(String host, int[] ports, int duration, int numThreads, int reportingInterval) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         long start = System.currentTimeMillis();
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host,slices.get(i));
+            RunThread t = new RunThread(host, slices.get(i));
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -121,35 +138,10 @@ public class MongoBench {
         }
         long lastInterval = start;
         long currentMillis = System.currentTimeMillis();
-        while (currentMillis - start < 1000 * duration) {
-            if (currentMillis - lastInterval > 60000) {
-                int numInserts = 0, numReads = 0;
-                long minReadLatency = Long.MAX_VALUE, maxReadLatency = 0, minWriteLatency = Long.MAX_VALUE, maxWriteLatency = 0;
-                float avgReadLatency = 0f, avgWriteLatency = 0f, tps = 0f;
-                for (final RunThread r : threads.keySet()) {
-                    numReads+=r.getNumReads();
-                    numInserts+=r.getNumInserts();
-                    if (r.getMaxReadlatency() > maxReadLatency) {
-                        maxReadLatency = r.getMaxReadlatency();
-                    }
-                    if (r.getMaxWriteLatency() > maxWriteLatency) {
-                        maxWriteLatency = r.getMaxWriteLatency();
-                    }
-                    if (r.getMinReadLatency() < minReadLatency) {
-                        minReadLatency = r.getMinReadLatency();
-                    }
-                    if (r.getMinWriteLatency() < minWriteLatency) {
-                        minWriteLatency = r.getMinWriteLatency();
-                    }
-                    avgReadLatency += r.getAccReadLatencies();
-                    avgWriteLatency += r.getAccWriteLatencies();
-                }
-                avgReadLatency = avgReadLatency / numReads;
-                avgWriteLatency = avgWriteLatency / numInserts;
-                tps = (numInserts + numReads) * 1000f / (currentMillis - start);
-                log.info("{} inserts, {} reads, {} transactions/second [{}/{}/{}] ms read latencies [{}/{}/{}] ms write latencies", numInserts, numReads,
-                        decimalFormat.format(tps), minReadLatency, maxReadLatency, decimalFormat.format(avgReadLatency), minWriteLatency, maxWriteLatency,
-                        decimalFormat.format(avgWriteLatency));
+        long interval;
+        while ((interval = currentMillis - start) < 1000 * duration) {
+            if (currentMillis - lastInterval > reportingInterval * 1000) {
+                collectAndReportLatencies(threads.keySet(), interval);
                 lastInterval = currentMillis;
             }
             try {
@@ -159,7 +151,7 @@ public class MongoBench {
             }
             currentMillis = System.currentTimeMillis();
         }
-        for (RunThread r : threads.keySet())  {
+        for (RunThread r : threads.keySet()) {
             r.stop();
         }
         long elapsed = System.currentTimeMillis() - start;
@@ -182,18 +174,53 @@ public class MongoBench {
         }
         float rate = (float) (numReads + numInserts) * 1000f / (float) elapsed;
         avgRatePerThread = avgRatePerThread / (float) numThreads;
+        collectAndReportLatencies(threads.keySet(), elapsed);
         log.info("Read {} and inserted {} documents in {} secs", numReads, numInserts, decimalFormat.format((float) elapsed / 1000f));
         log.info("Overall transaction rate: {} transactions/second", decimalFormat.format(rate));
         log.info("Average transaction rate pre thread: {} transactions/second", decimalFormat.format(avgRatePerThread));
-        log.info("Average transaction rate per instance: {} transactions/second", decimalFormat.format(rate/(float) ports.length));
+        log.info("Average transaction rate per instance: {} transactions/second", decimalFormat.format(rate / (float) ports.length));
+    }
+
+    private void collectAndReportLatencies(Set<RunThread> threads, long duration) {
+        int numInserts = 0, numReads = 0;
+        float minReadLatency = Float.MAX_VALUE, maxReadLatency = 0f, minWriteLatency = Float.MAX_VALUE, maxWriteLatency = 0f;
+        float avgReadLatency = 0f, avgWriteLatency = 0f;
+        float tps;
+        for (final RunThread r : threads) {
+            numReads += r.getNumReads();
+            numInserts += r.getNumInserts();
+            if (r.getMaxReadlatency() > maxReadLatency) {
+                maxReadLatency = r.getMaxReadlatency();
+            }
+            if (r.getMaxWriteLatency() > maxWriteLatency) {
+                maxWriteLatency = r.getMaxWriteLatency();
+            }
+            if (r.getMinReadLatency() < minReadLatency) {
+                minReadLatency = r.getMinReadLatency();
+            }
+            if (r.getMinWriteLatency() < minWriteLatency) {
+                minWriteLatency = r.getMinWriteLatency();
+            }
+            avgReadLatency += r.getAccReadLatencies();
+            avgWriteLatency += r.getAccWriteLatencies();
+        }
+        avgReadLatency = avgReadLatency / numReads;
+        avgWriteLatency = avgWriteLatency / numInserts;
+        tps = (numInserts + numReads) * 1000f / (duration);
+        log.info("{} inserts, {} reads in {} s, {} requests/sec", numInserts, numReads, decimalFormat.format(duration/1000f), decimalFormat.format(tps));
+        log.info("Read latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minReadLatency/1000000f),
+                decimalFormat.format(maxReadLatency/100000f), decimalFormat.format(avgReadLatency/1000000f));
+        log.info("Write latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minWriteLatency/1000000f),
+                decimalFormat.format(maxWriteLatency/1000000f), decimalFormat.format(avgWriteLatency/1000000f));
+
     }
 
     private List<List<Integer>> createSlices(int[] ports, int numThreads) {
         final List<List<Integer>> slices = new ArrayList<List<Integer>>(numThreads);
-        for (int i=0; i < numThreads; i++) {
+        for (int i = 0; i < numThreads; i++) {
             slices.add(new ArrayList<Integer>());
         }
-        for (int i=0; i < ports.length;i++) {
+        for (int i = 0; i < ports.length; i++) {
             int sliceIdx = i % numThreads;
             slices.get(sliceIdx).add(ports[i]);
         }
@@ -201,44 +228,37 @@ public class MongoBench {
     }
 
 
-    private void doLoadPhase(String host, int[] ports) {
-        log.info("Loading data into MongoDB");
-        final String data = RandomStringUtils.randomAlphabetic(1024);
-        final Document[] docs = new Document[1000];
-        for (int i = 0; i < docs.length; i++) {
-            docs[i] = new Document()
-                    .append("_id", i)
-                    .append("data", data);
+    private void doLoadPhase(String host, int[] ports, int numThreads, int numDocuments, int documentSize) {
+        if (numThreads > ports.length) {
+            log.error("The number of threads ({}) can not be larger than the number of ports ({})", numThreads, ports.length);
+            return;
+        }
+        Map<LoadThread, Thread> threads = new HashMap<LoadThread, Thread>(numThreads);
+        final List<List<Integer>> portSlice = new ArrayList<List<Integer>>(numThreads);
+        for (int i = 0; i < ports.length; i++) {
+            int idx = i % numThreads;
+            if (portSlice.size() < idx + 1) {
+                portSlice.add(idx, new ArrayList<Integer>());
+            }
+            portSlice.get(idx).add(ports[i]);
+        }
+        for (int i = 0; i < numThreads; i++) {
+            LoadThread l = new LoadThread(host, portSlice.get(i), numDocuments, documentSize);
+            threads.put(l, new Thread(l));
         }
 
-        // insert the data for each instance of MongoDB
-        float[] rates = new float[ports.length];
-        for (int i = 0; i < ports.length; i++) {
-            long startLoad = System.currentTimeMillis();
-            final MongoClient client = new MongoClient(host, ports[i]);
-            for (String name : client.listDatabaseNames()) {
-                if (name.equalsIgnoreCase(DB_NAME)) {
-                    log.warn("Database {} exists and will be purged before inserting", DB_NAME);
-                    client.dropDatabase(DB_NAME);
-                    break;
+        for (Thread t: threads.values()) {
+            t.start();
+        }
+        for (Thread t : threads.values()) {
+            if (t.isAlive()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    log.error("Error while waiting for thread", e);
                 }
             }
-            final MongoCollection<Document> collection = client.getDatabase(DB_NAME).getCollection(COLLECTION_NAME);
-            collection.insertMany(Arrays.asList(docs));
-            client.close();
-            long duration = System.currentTimeMillis() - startLoad;
-            float rate = 1000f * 1000f / (float) duration;
-            rates[i] = rate;
-            log.info("Finished loading {} documents in MongoDB on {}:{} in {} ms {} inserts/sec", docs.length, host, ports[i], duration, decimalFormat.format(rate));
         }
-
-        // calculate average
-        float avgRate = 0f;
-        for (int i = 0; i < rates.length; i++) {
-            avgRate += rates[i];
-        }
-        avgRate = avgRate / rates.length;
-        log.info("Load phase achieved an average rate {} inserts/sec", avgRate);
     }
 
     private static void showHelp(final Options ops) {

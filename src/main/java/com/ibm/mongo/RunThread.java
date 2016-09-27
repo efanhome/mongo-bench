@@ -6,7 +6,6 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -72,9 +71,9 @@ public class RunThread implements Runnable {
     }
 
     private void insertRecord(MongoClient client) {
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).insertOne(new Document("data", data));
-        long latency = System.currentTimeMillis() - start;
+        long latency = System.nanoTime() - start;
         if (latency < minWriteLatency) {
             minWriteLatency = latency;
         }
@@ -87,9 +86,9 @@ public class RunThread implements Runnable {
 
     private void readRecord(MongoClient client) {
         final Document doc = toRead[readIndex];
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         final Document fetched = client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).find(toRead[readIndex]).first();
-        long latency = System.currentTimeMillis() - start;
+        long latency = System.nanoTime() - start;
         if (latency < minReadLatency) {
             minReadLatency = latency;
         }
