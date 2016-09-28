@@ -6,6 +6,7 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -28,6 +29,9 @@ public class RunThread implements Runnable {
     private long minWriteLatency = Long.MAX_VALUE;
     private float accReadLatencies = 0;
     private float accWriteLatencies = 0;
+    private List<Long> readLatencies = new ArrayList<Long>(104857600);
+    private List<Long> writeLatencies = new ArrayList<Long>(104857600);
+    private AtomicBoolean initialized = new AtomicBoolean(false);
 
     public RunThread(String host, List<Integer> ports) {
         this.host = host;
@@ -47,7 +51,7 @@ public class RunThread implements Runnable {
         }
 
         int clientIdx = 0;
-        long start = System.currentTimeMillis();
+        initialized.set(true);
         while (!stop.get()) {
             currentRatio = (float) numReads / (float) (numInserts + numReads);
             clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
@@ -57,7 +61,6 @@ public class RunThread implements Runnable {
                 insertRecord(clients[clientIdx]);
             }
         }
-        duration = System.currentTimeMillis() - start;
         log.info("Closing {} connections", clients.length);
         for (final MongoClient c: clients) {
             c.close();
@@ -81,6 +84,7 @@ public class RunThread implements Runnable {
             maxWriteLatency = latency;
         }
         accWriteLatencies+=latency;
+        writeLatencies.add(latency);
         numInserts++;
     }
 
@@ -96,6 +100,7 @@ public class RunThread implements Runnable {
             maxReadlatency = latency;
         }
         accReadLatencies+=latency;
+        readLatencies.add(latency);
         if (fetched == null) {
             log.warn("Unable to read document with id {}", doc.get("_id"));
         }
@@ -141,5 +146,29 @@ public class RunThread implements Runnable {
 
     public float getAccWriteLatencies() {
         return accWriteLatencies;
+    }
+
+    public List<Long> getReadLatencies() {
+        return readLatencies;
+    }
+
+    public List<Long> getWriteLatencies() {
+        return writeLatencies;
+    }
+
+    public boolean isInitialized() {
+        return initialized.get();
+    }
+
+    public synchronized void resetData(){
+        readIndex = 0;
+        maxReadlatency = 0;
+        minReadLatency = Long.MAX_VALUE;
+        maxWriteLatency = 0;
+        minWriteLatency = Long.MAX_VALUE;
+        accReadLatencies = 0;
+        accWriteLatencies = 0;
+        readLatencies.clear();
+        writeLatencies.clear();
     }
 }

@@ -31,6 +31,7 @@ public class MongoBench {
         ops.addOption("r", "reporting-interval", true, "The interval in seconds for reporting progress");
         ops.addOption("c", "num-documents", true, "The number of documents to create during the load phase");
         ops.addOption("s", "document-size", true, "The size of the created documents");
+        ops.addOption("w", "warmup-time", true, "The number of seconds to wait before actually collecting result data");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -42,6 +43,7 @@ public class MongoBench {
         int reportingInterval;
         int documentSize;
         int numDocuments;
+        int warmup;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -58,7 +60,7 @@ public class MongoBench {
                     throw new ParseException("Invalid phase " + cli.getOptionValue('l'));
                 }
             } else {
-                throw new ParseException("No phase given");
+                throw new ParseException("No phase given. Try \"--help/-h\"");
             }
             if (cli.hasOption('p')) {
                 final String portVal = cli.getOptionValue('p');
@@ -107,6 +109,11 @@ public class MongoBench {
             } else {
                 documentSize = 1024;
             }
+            if (cli.hasOption('w')) {
+                warmup = Integer.parseInt(cli.getOptionValue('w'));
+            } else {
+                warmup = 0;
+            }
 
             log.info("Running phase {}", phase.name());
 
@@ -117,16 +124,15 @@ public class MongoBench {
                 if (numThreads > ports.length) {
                     throw new ParseException("Number of threads must be smaller than number of ports");
                 }
-                bench.doRunPhase(host, ports, duration, numThreads, reportingInterval);
+                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int duration, int numThreads, int reportingInterval) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
-        long start = System.currentTimeMillis();
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
         for (int i = 0; i < numThreads; i++) {
@@ -136,6 +142,22 @@ public class MongoBench {
         for (final Thread t : threads.values()) {
             t.start();
         }
+
+        for (final RunThread r : threads.keySet()) {
+            while (!r.isInitialized()) {
+                Thread.yield();
+            }
+        }
+        log.info("Client threads have been initialized");
+
+        // run the warmup phase id a warmup greater than 0 has been passed by the user
+        warmup(warmup);
+
+        for (RunThread r : threads.keySet()) {
+            r.resetData();
+        }
+
+        long start = System.currentTimeMillis();
         long lastInterval = start;
         long currentMillis = System.currentTimeMillis();
         long interval;
@@ -145,7 +167,7 @@ public class MongoBench {
                 lastInterval = currentMillis;
             }
             try {
-                Thread.sleep(100);
+                Thread.sleep(300);
             } catch (InterruptedException e) {
                 log.error("Unable to sleep", e);
             }
@@ -174,11 +196,55 @@ public class MongoBench {
         }
         float rate = (float) (numReads + numInserts) * 1000f / (float) elapsed;
         avgRatePerThread = avgRatePerThread / (float) numThreads;
-        collectAndReportLatencies(threads.keySet(), elapsed);
         log.info("Read {} and inserted {} documents in {} secs", numReads, numInserts, decimalFormat.format((float) elapsed / 1000f));
         log.info("Overall transaction rate: {} transactions/second", decimalFormat.format(rate));
         log.info("Average transaction rate pre thread: {} transactions/second", decimalFormat.format(avgRatePerThread));
         log.info("Average transaction rate per instance: {} transactions/second", decimalFormat.format(rate / (float) ports.length));
+        collectAndReportLatencies(threads.keySet(), elapsed);
+        collectAndReport90PLatency(threads.keySet());
+    }
+
+    private void warmup(int warmupInSeconds) {
+        if (warmupInSeconds > 0) {
+            long startWarmup = System.currentTimeMillis();
+            log.info("Warm up for {} seconds", warmupInSeconds);
+            while (System.currentTimeMillis() - startWarmup < warmupInSeconds * 1000) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            log.info("Warmup finished.");
+        }
+    }
+
+    private void collectAndReport90PLatency(Set<RunThread> runThreads) {
+        int countReadLatencies = 0, countWriteLatencies = 0;
+        for (final RunThread r : runThreads) {
+            countReadLatencies += r.getReadLatencies().size();
+            countWriteLatencies += r.getWriteLatencies().size();
+        }
+        final long[] readLatencies = new long[countReadLatencies];
+        final long[] writeLatencies = new long[countWriteLatencies];
+        for (final RunThread r : runThreads) {
+            int idx = 0;
+            for (final Long latency : r.getReadLatencies()) {
+                readLatencies[idx++] = latency;
+            }
+            idx = 0;
+            for (final Long latency : r.getWriteLatencies()) {
+                writeLatencies[idx++] = latency;
+            }
+        }
+        Arrays.sort(readLatencies);
+        Arrays.sort(writeLatencies);
+        final long read90PLatency = readLatencies[(int) 0.9f * countReadLatencies];
+        final long write90PLatency = writeLatencies[(int) 0.9f * countWriteLatencies];
+        final long read50PLatency = readLatencies[(int) 0.5f * countReadLatencies];
+        final long write50PLatency = writeLatencies[(int) 0.5f * countWriteLatencies];
+        log.info("Read Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(read90PLatency / 1000f), decimalFormat.format(read50PLatency / 1000000f));
+        log.info("Write Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(write90PLatency / 1000f), decimalFormat.format(write50PLatency / 1000000f));
     }
 
     private void collectAndReportLatencies(Set<RunThread> threads, long duration) {
@@ -207,12 +273,11 @@ public class MongoBench {
         avgReadLatency = avgReadLatency / numReads;
         avgWriteLatency = avgWriteLatency / numInserts;
         tps = (numInserts + numReads) * 1000f / (duration);
-        log.info("{} inserts, {} reads in {} s, {} requests/sec", numInserts, numReads, decimalFormat.format(duration/1000f), decimalFormat.format(tps));
-        log.info("Read latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minReadLatency/1000000f),
-                decimalFormat.format(maxReadLatency/100000f), decimalFormat.format(avgReadLatency/1000000f));
-        log.info("Write latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minWriteLatency/1000000f),
-                decimalFormat.format(maxWriteLatency/1000000f), decimalFormat.format(avgWriteLatency/1000000f));
-
+        log.info("{} inserts, {} reads in {} s, {} requests/sec", numInserts, numReads, decimalFormat.format(duration / 1000f), decimalFormat.format(tps));
+        log.info("Read latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minReadLatency / 1000000f),
+                decimalFormat.format(maxReadLatency / 100000f), decimalFormat.format(avgReadLatency / 1000000f));
+        log.info("Write latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minWriteLatency / 1000000f),
+                decimalFormat.format(maxWriteLatency / 1000000f), decimalFormat.format(avgWriteLatency / 1000000f));
     }
 
     private List<List<Integer>> createSlices(int[] ports, int numThreads) {
@@ -247,7 +312,7 @@ public class MongoBench {
             threads.put(l, new Thread(l));
         }
 
-        for (Thread t: threads.values()) {
+        for (Thread t : threads.values()) {
             t.start();
         }
         for (Thread t : threads.values()) {
