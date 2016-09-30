@@ -184,6 +184,8 @@ public class RunThread implements Runnable {
     }
 
     public synchronized void resetData(){
+        numInserts = 0;
+        numReads = 0;
         readIndex = 0;
         maxReadlatency = 0;
         minReadLatency = Long.MAX_VALUE;
