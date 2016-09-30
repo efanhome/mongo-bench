@@ -239,24 +239,23 @@ public class MongoBench {
         }
         final long[] readLatencies = new long[countReadLatencies];
         final long[] writeLatencies = new long[countWriteLatencies];
+        int idxRead = 0, idxWrite = 0;
         for (final RunThread r : runThreads) {
-            int idx = 0;
             for (final Long latency : r.getReadLatencies()) {
-                readLatencies[idx++] = latency;
+                readLatencies[idxRead++] = latency;
             }
-            idx = 0;
             for (final Long latency : r.getWriteLatencies()) {
-                writeLatencies[idx++] = latency;
+                writeLatencies[idxWrite++] = latency;
             }
         }
         Arrays.sort(readLatencies);
         Arrays.sort(writeLatencies);
-        final long read90PLatency = readLatencies[(int) 0.9f * countReadLatencies];
-        final long write90PLatency = writeLatencies[(int) 0.9f * countWriteLatencies];
-        final long read50PLatency = readLatencies[(int) 0.5f * countReadLatencies];
-        final long write50PLatency = writeLatencies[(int) 0.5f * countWriteLatencies];
-        log.info("Read Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(read90PLatency / 1000f), decimalFormat.format(read50PLatency / 1000000f));
-        log.info("Write Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(write90PLatency / 1000f), decimalFormat.format(write50PLatency / 1000000f));
+        final long read90PLatency = readLatencies[(int) (0.9f * countReadLatencies)];
+        final long write90PLatency = writeLatencies[(int) (0.9f * countWriteLatencies)];
+        final long read50PLatency = readLatencies[(int) (0.5f * countReadLatencies)];
+        final long write50PLatency = writeLatencies[(int) (0.5f * countWriteLatencies)];
+        log.info("Read Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(read90PLatency / 1000000f), decimalFormat.format(read50PLatency / 1000000f));
+        log.info("Write Latencies 90 percentile/50 Percentile [ms]: {}/{}", decimalFormat.format(write90PLatency / 1000000f), decimalFormat.format(write50PLatency / 1000000f));
     }
 
     private void collectAndReportLatencies(Set<RunThread> threads, long duration) {
