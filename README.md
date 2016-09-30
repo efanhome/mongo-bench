@@ -28,9 +28,8 @@ The benchmark is written in Java and at least Java 6 is required to run the gene
      -t,--target  <arg>              The target host to connect to
      -w,--warmup-time <arg>          The number of seconds to wait before actually collecting result data
 
-The benchmark is split into two phases: Load and Run. Random data is added during the load phase which is in turn
-retrieved from mongodb in the run phase
-```
+    The benchmark is split into two phases: Load and Run. Random data is added during the load phase which is in turn
+    retrieved from mongodb in the run phase
 
 
 ### Examples
