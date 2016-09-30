@@ -143,12 +143,12 @@ public class MongoBench {
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float rateLimit) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i), rateLimit/(float) numThreads);
+            RunThread t = new RunThread(host, slices.get(i), targetRate/(float) numThreads);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {

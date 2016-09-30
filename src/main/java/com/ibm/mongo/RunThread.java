@@ -63,7 +63,7 @@ public class RunThread implements Runnable {
         while (!stop.get()) {
             currentRatio = (float) numReads / (float) (numInserts + numReads);
             if (targetRate > 0 ) {
-                if ((float) (numReads + numInserts) / (float) (System.currentTimeMillis() - startMillis) > targetRate) {
+                if ((float) (numReads + numInserts) * 1000f / (float) (System.currentTimeMillis() - startMillis) > targetRate) {
                     sleep(ratePause);
                 }
             }
