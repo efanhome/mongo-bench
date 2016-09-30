@@ -4,7 +4,7 @@ This is a benchmark for assessing MongoDB performance in a SaaS environment when
 
 ## Building
 
-The benchmark is a Java project build with Apache Maven. In order to build the project from source run the package phase of APache Maven:
+The benchmark is a Java project build with Apache Maven. In order to build the project from source run the package phase of Apache Maven:
 ```bash
 #> mvn package
 ```
@@ -13,21 +13,20 @@ The benchmark is a Java project build with Apache Maven. In order to build the p
 
 The benchmark is written in Java and at least Java 6 is required to run the generated jar file. Since a lot of latency data is recorded per thread large amounts of memory are needed and the benchmark has to be run with a larger than normal heapsize during the run phase
 
-```bash
-usage: java -jar mongo-bench-1.0-SNAPSHOT-jar-with-dependencies.jar [options]
+    usage: java -jar mongo-bench-1.0-SNAPSHOT-jar-with-dependencies.jar [options]
 
-Options:
- -c,--num-documents <arg>        The number of documents to create during the load phase
- -d,--duration <arg>             Run the bench for this many seconds
- -h,--help                       Show this help dialog
- -j,--target-rate <arg>          Send request at the given rate. Accepts decimal numbers
- -l,--phase <arg>                The phase to execute [run|load]
- -n,--num-thread <arg>           The number of threads to run
- -p,--port <arg>                 The ports to connect to
- -r,--reporting-interval <arg>   The interval in seconds for reporting progress
- -s,--document-size <arg>        The size of the created documents
- -t,--target  <arg>              The target host to connect to
- -w,--warmup-time <arg>          The number of seconds to wait before actually collecting result data
+    Options:
+     -c,--num-documents <arg>        The number of documents to create during the load phase
+     -d,--duration <arg>             Run the bench for this many seconds
+     -h,--help                       Show this help dialog
+     -j,--target-rate <arg>          Send request at the given rate. Accepts decimal numbers
+     -l,--phase <arg>                The phase to execute [run|load]
+     -n,--num-thread <arg>           The number of threads to run
+     -p,--port <arg>                 The ports to connect to
+     -r,--reporting-interval <arg>   The interval in seconds for reporting progress
+     -s,--document-size <arg>        The size of the created documents
+     -t,--target  <arg>              The target host to connect to
+     -w,--warmup-time <arg>          The number of seconds to wait before actually collecting result data
 
 The benchmark is split into two phases: Load and Run. Random data is added during the load phase which is in turn
 retrieved from mongodb in the run phase
