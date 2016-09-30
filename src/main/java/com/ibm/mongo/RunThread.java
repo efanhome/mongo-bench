@@ -19,7 +19,6 @@ public class RunThread implements Runnable {
     private int numReads = 0;
     private final String host;
     private final List<Integer> ports;
-    private long duration;
     private String data = RandomStringUtils.randomAlphabetic(1024);
     private final Document[] toRead = new Document[9];
     private int readIndex = 0;
@@ -32,10 +31,14 @@ public class RunThread implements Runnable {
     private List<Long> readLatencies = new ArrayList<Long>(104857600);
     private List<Long> writeLatencies = new ArrayList<Long>(104857600);
     private AtomicBoolean initialized = new AtomicBoolean(false);
+    private final float targetRate;
+    private long startMillis;
+    private long elapsed = 0l;
 
-    public RunThread(String host, List<Integer> ports) {
+    public RunThread(String host, List<Integer> ports, float targetRate) {
         this.host = host;
         this.ports = ports;
+        this.targetRate = targetRate;
         for (int i = 0; i < 9;i++) {
             toRead[i] = new Document("_id", i);
         }
@@ -52,15 +55,27 @@ public class RunThread implements Runnable {
 
         int clientIdx = 0;
         initialized.set(true);
+        long ratePause = (long) (1000f / targetRate);
+        startMillis = System.currentTimeMillis();
+        float currentRate = 0;
+
+        // do the actual benchmark measurements
         while (!stop.get()) {
             currentRatio = (float) numReads / (float) (numInserts + numReads);
+            if (targetRate > 0 ) {
+                if ((float) (numReads + numInserts) / (float) (System.currentTimeMillis() - startMillis) > targetRate) {
+                    sleep(ratePause);
+                }
+            }
             clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
             if (currentRatio < targetRatio) {
                 readRecord(clients[clientIdx]);
             } else {
                 insertRecord(clients[clientIdx]);
             }
+            elapsed = System.currentTimeMillis() - startMillis;
         }
+
         log.info("Closing {} connections", clients.length);
         for (final MongoClient c: clients) {
             c.close();
@@ -69,8 +84,16 @@ public class RunThread implements Runnable {
         log.info("Thread finished");
     }
 
+    private void sleep(long ratePause) {
+        try {
+            Thread.sleep(ratePause);
+        } catch (InterruptedException e) {
+            log.error("Error while sleeping", e);
+        }
+    }
+
     public float getRate() {
-        return ((float) (numInserts + numReads) * 1000f) / (float) duration;
+        return ((float) (numInserts + numReads) * 1000f) / (float) elapsed;
     }
 
     private void insertRecord(MongoClient client) {
@@ -170,5 +193,6 @@ public class RunThread implements Runnable {
         accWriteLatencies = 0;
         readLatencies.clear();
         writeLatencies.clear();
+        startMillis = System.currentTimeMillis();
     }
 }

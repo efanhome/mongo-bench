@@ -1,9 +1,11 @@
 package com.ibm.mongo;
 
+import com.mongodb.MongoClient;
 import org.apache.commons.cli.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URISyntaxException;
 import java.text.DecimalFormat;
 import java.util.*;
 
@@ -32,6 +34,7 @@ public class MongoBench {
         ops.addOption("c", "num-documents", true, "The number of documents to create during the load phase");
         ops.addOption("s", "document-size", true, "The size of the created documents");
         ops.addOption("w", "warmup-time", true, "The number of seconds to wait before actually collecting result data");
+        ops.addOption("j", "target-rate", true, "Send request at the given rate. Accepts decimal numbers");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -44,6 +47,7 @@ public class MongoBench {
         int documentSize;
         int numDocuments;
         int warmup;
+        float rateLimit;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -71,6 +75,9 @@ public class MongoBench {
                 } else {
                     int startPort = Integer.parseInt(portVal.substring(0, dashIdx));
                     int endPort = Integer.parseInt(portVal.substring(dashIdx + 1));
+                    if (endPort < startPort) {
+                        throw new ParseException("Port range is invalid. End port must be larger than start port");
+                    }
                     ports = new int[endPort - startPort + 1];
                     for (int i = 0; i <= endPort - startPort; i++) {
                         ports[i] = startPort + i;
@@ -114,6 +121,11 @@ public class MongoBench {
             } else {
                 warmup = 0;
             }
+            if (cli.hasOption('j')) {
+                rateLimit = Float.parseFloat(cli.getOptionValue('j'));
+            } else {
+                rateLimit = 0f;
+            }
 
             log.info("Running phase {}", phase.name());
 
@@ -124,19 +136,19 @@ public class MongoBench {
                 if (numThreads > ports.length) {
                     throw new ParseException("Number of threads must be smaller than number of ports");
                 }
-                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval);
+                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float rateLimit) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i));
+            RunThread t = new RunThread(host, slices.get(i), rateLimit/(float) numThreads);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -327,7 +339,22 @@ public class MongoBench {
     }
 
     private static void showHelp(final Options ops) {
-        new HelpFormatter().printHelp(80, "mongo-bench", null, ops, null);
+        final StringBuilder header = new StringBuilder();
+        header.append("\nOptions:");
+        final StringBuilder footer = new StringBuilder();
+        footer.append("\nThe benchmark is split into two phases: Load and Run. ")
+                .append("Random data is added during the load phase which is in turn retrieved from mongodb in the run phase");
+        String jarName;
+        try {
+            jarName = MongoBench.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
+            int posSlash = jarName.lastIndexOf('/');
+            if (posSlash != -1 && jarName.length() > posSlash) {
+                jarName = jarName.substring(posSlash + 1);
+            }
+        } catch (URISyntaxException e) {
+            jarName = "mongo-bench.jar";
+        }
+        new HelpFormatter().printHelp(120, "java -jar " + jarName + " [options]", header.toString(), ops, footer.toString());
     }
 
 }
