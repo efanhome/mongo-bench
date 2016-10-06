@@ -50,7 +50,7 @@ public class RunThread implements Runnable {
         final MongoClient[] clients = new MongoClient[portsLen];
         log.info("Opening {} connections", portsLen);
         for (int i = 0; i< portsLen;i++) {
-            clients[i] = new MongoClient(host, ports.get(i));
+            clients[i] = new MongoClient(host,  ports.get(i));
         }
 
         int clientIdx = 0;
