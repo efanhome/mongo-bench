@@ -67,20 +67,25 @@ public class MongoBench {
             }
             if (cli.hasOption('p')) {
                 final String portVal = cli.getOptionValue('p');
-                int dashIdx = portVal.indexOf('-');
-                if (dashIdx == -1) {
-                    ports = new int[1];
-                    ports[0] = Integer.parseInt(portVal);
-                } else {
-                    int startPort = Integer.parseInt(portVal.substring(0, dashIdx));
-                    int endPort = Integer.parseInt(portVal.substring(dashIdx + 1));
-                    if (endPort < startPort) {
-                        throw new ParseException("Port range is invalid. End port must be larger than start port");
+                final List<Integer> tmpPorts = new ArrayList<Integer>();
+                for (final String range : portVal.split(",")) {
+                    int dashIdx = range.indexOf('-');
+                    if (dashIdx == -1) {
+                        tmpPorts.add(Integer.parseInt(range));
+                    } else {
+                        int startPort = Integer.parseInt(range.substring(0, dashIdx));
+                        int endPort = Integer.parseInt(range.substring(dashIdx + 1));
+                        if (endPort < startPort) {
+                            throw new ParseException("Port range is invalid. End port must be larger than start port");
+                        }
+                        for (int i = 0; i <= endPort - startPort; i++) {
+                            tmpPorts.add(startPort + i);
+                        }
                     }
-                    ports = new int[endPort - startPort + 1];
-                    for (int i = 0; i <= endPort - startPort; i++) {
-                        ports[i] = startPort + i;
-                    }
+                }
+                ports=new int[tmpPorts.size()];
+                for (int i=0;i<tmpPorts.size();i++) {
+                    ports[i] = tmpPorts.get(i);
                 }
             } else {
                 ports = new int[]{27017};
