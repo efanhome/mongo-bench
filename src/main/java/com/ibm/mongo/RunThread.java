@@ -6,7 +6,8 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -32,14 +33,19 @@ public class RunThread implements Runnable {
     private final float targetRate;
     private long startMillis;
     private long elapsed = 0l;
+    private FileOutputStream readLatencySink;
+    private FileOutputStream insertLatencySink;
+    private String lineSeparator = System.getProperty("line.separator");
 
-    public RunThread(String host, List<Integer> ports, float targetRate) {
+    public RunThread(String host, List<Integer> ports, float targetRate, FileOutputStream readLatencySink, FileOutputStream insertLatencySink) {
         this.host = host;
         this.ports = ports;
         this.targetRate = targetRate;
-        for (int i = 0; i < 9;i++) {
+        for (int i = 0; i < 9; i++) {
             toRead[i] = new Document("_id", i);
         }
+        this.insertLatencySink = insertLatencySink;
+        this.readLatencySink = readLatencySink;
     }
 
     @Override
@@ -47,8 +53,8 @@ public class RunThread implements Runnable {
         int portsLen = ports.size();
         final MongoClient[] clients = new MongoClient[portsLen];
         log.info("Opening {} connections", portsLen);
-        for (int i = 0; i< portsLen;i++) {
-            clients[i] = new MongoClient(host,  ports.get(i));
+        for (int i = 0; i < portsLen; i++) {
+            clients[i] = new MongoClient(host, ports.get(i));
         }
 
         int clientIdx = 0;
@@ -58,24 +64,28 @@ public class RunThread implements Runnable {
         float currentRate = 0;
 
         // do the actual benchmark measurements
-        while (!stop.get()) {
-            currentRatio = (float) numReads / (float) (numInserts + numReads);
-            if (targetRate > 0 ) {
-                if ((float) (numReads + numInserts) * 1000f / (float) (System.currentTimeMillis() - startMillis) > targetRate) {
-                    sleep(ratePause);
+        try {
+            while (!stop.get()) {
+                currentRatio = (float) numReads / (float) (numInserts + numReads);
+                if (targetRate > 0) {
+                    if ((float) (numReads + numInserts) * 1000f / (float) (System.currentTimeMillis() - startMillis) > targetRate) {
+                        sleep(ratePause);
+                    }
                 }
+                clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
+                if (currentRatio < targetRatio) {
+                    readRecord(clients[clientIdx]);
+                } else {
+                    insertRecord(clients[clientIdx]);
+                }
+                elapsed = System.currentTimeMillis() - startMillis;
             }
-            clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
-            if (currentRatio < targetRatio) {
-                readRecord(clients[clientIdx]);
-            } else {
-                insertRecord(clients[clientIdx]);
-            }
-            elapsed = System.currentTimeMillis() - startMillis;
+        } catch (IOException e) {
+            log.error("Error while running benchmark", e);
         }
 
         log.info("Closing {} connections", clients.length);
-        for (final MongoClient c: clients) {
+        for (final MongoClient c : clients) {
             c.close();
         }
 
@@ -94,32 +104,34 @@ public class RunThread implements Runnable {
         return ((float) (numInserts + numReads) * 1000f) / (float) elapsed;
     }
 
-    private void insertRecord(MongoClient client) {
+    private void insertRecord(MongoClient client) throws IOException {
         long start = System.nanoTime();
         client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).insertOne(new Document("data", data));
         long latency = System.nanoTime() - start;
+        recordLatency(latency, insertLatencySink);
         if (latency < minWriteLatency) {
             minWriteLatency = latency;
         }
         if (latency > maxWriteLatency) {
             maxWriteLatency = latency;
         }
-        accWriteLatencies+=latency;
+        accWriteLatencies += latency;
         numInserts++;
     }
 
-    private void readRecord(MongoClient client) {
+    private void readRecord(MongoClient client) throws IOException {
         final Document doc = toRead[readIndex];
         long start = System.nanoTime();
         final Document fetched = client.getDatabase(MongoBench.DB_NAME).getCollection(MongoBench.COLLECTION_NAME).find(toRead[readIndex]).first();
         long latency = System.nanoTime() - start;
+        recordLatency(latency, readLatencySink);
         if (latency < minReadLatency) {
             minReadLatency = latency;
         }
         if (latency > maxReadlatency) {
             maxReadlatency = latency;
         }
-        accReadLatencies+=latency;
+        accReadLatencies += latency;
         if (fetched == null) {
             log.warn("Unable to read document with id {}", doc.get("_id"));
         }
@@ -129,6 +141,14 @@ public class RunThread implements Runnable {
             readIndex++;
         }
         numReads++;
+    }
+
+    private void recordLatency(final long latency, final FileOutputStream sink) throws IOException {
+        if (sink != null) {
+            sink.write(String.valueOf(latency).getBytes());
+            sink.write(lineSeparator.getBytes());
+            sink.flush();
+        }
     }
 
     public void stop() {
@@ -172,7 +192,7 @@ public class RunThread implements Runnable {
         return initialized.get();
     }
 
-    public synchronized void resetData(){
+    public synchronized void resetData() {
         numInserts = 0;
         numReads = 0;
         readIndex = 0;

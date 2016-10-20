@@ -4,6 +4,9 @@ import org.apache.commons.cli.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.text.DecimalFormat;
 import java.util.*;
@@ -34,6 +37,7 @@ public class MongoBench {
         ops.addOption("s", "document-size", true, "The size of the created documents");
         ops.addOption("w", "warmup-time", true, "The number of seconds to wait before actually collecting result data");
         ops.addOption("j", "target-rate", true, "Send request at the given rate. Accepts decimal numbers");
+        ops.addOption("a", "record-latencies", true, "Set the file prefix to which to write latencies to");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -47,6 +51,7 @@ public class MongoBench {
         int numDocuments;
         int warmup;
         float rateLimit;
+        String latencyFilePrefix;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -130,6 +135,11 @@ public class MongoBench {
             } else {
                 rateLimit = 0f;
             }
+            if (cli.hasOption('a')) {
+                latencyFilePrefix = cli.getOptionValue('a');
+            } else {
+                latencyFilePrefix = null;
+            }
 
             log.info("Running phase {}", phase.name());
 
@@ -140,19 +150,45 @@ public class MongoBench {
                 if (numThreads > ports.length) {
                     throw new ParseException("Number of threads must be smaller than number of ports");
                 }
-                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit);
+                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit, latencyFilePrefix);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate, String latencyFilePrefix) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
+
+        File readLatencyFile = null;
+        File insertLatencyFile = null;
+        FileOutputStream readlatencySink = null;
+        FileOutputStream insertLatencySink = null;
+        if (latencyFilePrefix != null) {
+            readLatencyFile = new File(latencyFilePrefix + "_read_0.log");
+            insertLatencyFile = new File(latencyFilePrefix + "_insert_0.log");
+            int count = 1;
+            while (readLatencyFile.exists() || insertLatencyFile.exists()) {
+                readLatencyFile = new File(latencyFilePrefix + "_read_" + count + ".log");
+                insertLatencyFile = new File(latencyFilePrefix + "_insert_" + count + ".log");
+                count++;
+                log.info("Setting name to " + readLatencyFile.getAbsolutePath());
+            }
+            try {
+                readlatencySink = new FileOutputStream(readLatencyFile);
+                insertLatencySink = new FileOutputStream(insertLatencyFile);
+            }catch(IOException e) {
+                log.error("Unable to open latency streams", e);
+                return;
+            }
+            log.info("read latencies will be written to " + readLatencyFile.getAbsolutePath());
+            log.info("insert latencies will be written to " + insertLatencyFile.getAbsolutePath());
+        }
+
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i), targetRate/(float) numThreads);
+            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, readlatencySink, insertLatencySink);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -201,6 +237,17 @@ public class MongoBench {
             }
         }
 
+        try {
+            if (readlatencySink != null) {
+                readlatencySink.close();
+            }
+            if (insertLatencySink != null) {
+                insertLatencySink.close();
+            }
+        }catch (IOException e) {
+            log.error("Unable to close stream", e);
+        }
+
 
         float avgRatePerThread = 0f;
         long numReads = 0;
@@ -216,6 +263,12 @@ public class MongoBench {
         log.info("Overall transaction rate: {} transactions/second", decimalFormat.format(rate));
         log.info("Average transaction rate pre thread: {} transactions/second", decimalFormat.format(avgRatePerThread));
         log.info("Average transaction rate per instance: {} transactions/second", decimalFormat.format(rate / (float) ports.length));
+        if (readLatencyFile != null) {
+            log.info("Read latencies have been written to " + readLatencyFile.getAbsolutePath());
+        }
+        if (insertLatencyFile != null) {
+            log.info("Insert latencies have been written to " + insertLatencyFile.getAbsolutePath());
+        }
         collectAndReportLatencies(threads.keySet(), elapsed);
     }
 

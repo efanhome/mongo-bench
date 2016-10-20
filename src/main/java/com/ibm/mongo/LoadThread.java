@@ -54,7 +54,7 @@ public class LoadThread implements Runnable {
             client.close();
             long duration = System.currentTimeMillis() - startLoad;
             float rate = 1000f * 1000f / (float) duration;
-            log.info("Finished loading {} documents in {}:{} [{} insetrs/sec]", count, host, ports.get(i), rate);
+            log.info("Finished loading {} documents in {}:{} [{} inserts/sec]", count, host, ports.get(i), rate);
         }
 
 
