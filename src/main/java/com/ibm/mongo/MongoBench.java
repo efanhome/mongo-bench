@@ -162,33 +162,8 @@ public class MongoBench {
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
 
-        File readLatencyFile = null;
-        File insertLatencyFile = null;
-        FileOutputStream readlatencySink = null;
-        FileOutputStream insertLatencySink = null;
-        if (latencyFilePrefix != null) {
-            readLatencyFile = new File(latencyFilePrefix + "_read_0.log");
-            insertLatencyFile = new File(latencyFilePrefix + "_insert_0.log");
-            int count = 1;
-            while (readLatencyFile.exists() || insertLatencyFile.exists()) {
-                readLatencyFile = new File(latencyFilePrefix + "_read_" + count + ".log");
-                insertLatencyFile = new File(latencyFilePrefix + "_insert_" + count + ".log");
-                count++;
-                log.info("Setting name to " + readLatencyFile.getAbsolutePath());
-            }
-            try {
-                readlatencySink = new FileOutputStream(readLatencyFile);
-                insertLatencySink = new FileOutputStream(insertLatencyFile);
-            }catch(IOException e) {
-                log.error("Unable to open latency streams", e);
-                return;
-            }
-            log.info("read latencies will be written to " + readLatencyFile.getAbsolutePath());
-            log.info("insert latencies will be written to " + insertLatencyFile.getAbsolutePath());
-        }
-
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, readlatencySink, insertLatencySink);
+            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, latencyFilePrefix);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -237,18 +212,6 @@ public class MongoBench {
             }
         }
 
-        try {
-            if (readlatencySink != null) {
-                readlatencySink.close();
-            }
-            if (insertLatencySink != null) {
-                insertLatencySink.close();
-            }
-        }catch (IOException e) {
-            log.error("Unable to close stream", e);
-        }
-
-
         float avgRatePerThread = 0f;
         long numReads = 0;
         long numInserts = 0;
@@ -263,12 +226,6 @@ public class MongoBench {
         log.info("Overall transaction rate: {} transactions/second", decimalFormat.format(rate));
         log.info("Average transaction rate pre thread: {} transactions/second", decimalFormat.format(avgRatePerThread));
         log.info("Average transaction rate per instance: {} transactions/second", decimalFormat.format(rate / (float) ports.length));
-        if (readLatencyFile != null) {
-            log.info("Read latencies have been written to " + readLatencyFile.getAbsolutePath());
-        }
-        if (insertLatencyFile != null) {
-            log.info("Insert latencies have been written to " + insertLatencyFile.getAbsolutePath());
-        }
         collectAndReportLatencies(threads.keySet(), elapsed);
     }
 
@@ -315,7 +272,7 @@ public class MongoBench {
         tps = (numInserts + numReads) * 1000f / (duration);
         log.info("{} inserts, {} reads in {} s, {} requests/sec", numInserts, numReads, decimalFormat.format(duration / 1000f), decimalFormat.format(tps));
         log.info("Read latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minReadLatency / 1000000f),
-                decimalFormat.format(maxReadLatency / 100000f), decimalFormat.format(avgReadLatency / 1000000f));
+                decimalFormat.format(maxReadLatency / 1000000f), decimalFormat.format(avgReadLatency / 1000000f));
         log.info("Write latency Min/Max/Avg [ms]: {}/{}/{}", decimalFormat.format(minWriteLatency / 1000000f),
                 decimalFormat.format(maxWriteLatency / 1000000f), decimalFormat.format(avgWriteLatency / 1000000f));
     }

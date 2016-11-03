@@ -1,6 +1,8 @@
 package com.ibm.mongo;
 
 import com.mongodb.MongoClient;
+import com.mongodb.MongoClientOptions;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoCollection;
 import org.apache.commons.lang.RandomStringUtils;
 import org.bson.Document;
@@ -35,7 +37,12 @@ public class LoadThread implements Runnable {
         log.info("Loading data into {} instances on {}", ports.size(), host);
         for (int i = 0; i < ports.size(); i++) {
             int count = 0, currentBatchSize;
-            final MongoClient client = new MongoClient(host, ports.get(i));
+            final MongoClientOptions ops = MongoClientOptions.builder()
+                    .maxWaitTime(120000)
+                    .connectTimeout(120000)
+                    .socketTimeout(120000)
+                    .build();
+            final MongoClient client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
             for (final String name : client.listDatabaseNames()) {
                 if (name.equalsIgnoreCase(MongoBench.DB_NAME)) {
                     log.warn("Database {} exists and will be purged before inserting", MongoBench.DB_NAME);

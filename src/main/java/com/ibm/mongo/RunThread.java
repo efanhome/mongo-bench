@@ -1,6 +1,8 @@
 package com.ibm.mongo;
 
 import com.mongodb.MongoClient;
+import com.mongodb.MongoClientOptions;
+import com.mongodb.ServerAddress;
 import org.apache.commons.lang.RandomStringUtils;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -36,16 +38,16 @@ public class RunThread implements Runnable {
     private FileOutputStream readLatencySink;
     private FileOutputStream insertLatencySink;
     private String lineSeparator = System.getProperty("line.separator");
+    private String prefixLatencyFile;
 
-    public RunThread(String host, List<Integer> ports, float targetRate, FileOutputStream readLatencySink, FileOutputStream insertLatencySink) {
+    public RunThread(String host, List<Integer> ports, float targetRate, String prefixLatencyFile) {
         this.host = host;
         this.ports = ports;
         this.targetRate = targetRate;
         for (int i = 0; i < 9; i++) {
             toRead[i] = new Document("_id", i);
         }
-        this.insertLatencySink = insertLatencySink;
-        this.readLatencySink = readLatencySink;
+        this.prefixLatencyFile = prefixLatencyFile;
     }
 
     @Override
@@ -54,7 +56,21 @@ public class RunThread implements Runnable {
         final MongoClient[] clients = new MongoClient[portsLen];
         log.info("Opening {} connections", portsLen);
         for (int i = 0; i < portsLen; i++) {
-            clients[i] = new MongoClient(host, ports.get(i));
+            final MongoClientOptions ops = MongoClientOptions.builder()
+                    .maxWaitTime(120000)
+                    .connectTimeout(120000)
+                    .socketTimeout(120000)
+                    .build();
+            clients[i] = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
+        }
+
+        if (prefixLatencyFile != null) {
+            try {
+                readLatencySink = new FileOutputStream(prefixLatencyFile + "_read_" + Thread.currentThread().getId());
+                insertLatencySink = new FileOutputStream(prefixLatencyFile + "_insert_" + Thread.currentThread().getId());
+            } catch (IOException e) {
+                log.error("Unable to open latency file", e);
+            }
         }
 
         int clientIdx = 0;
@@ -87,6 +103,17 @@ public class RunThread implements Runnable {
         log.info("Closing {} connections", clients.length);
         for (final MongoClient c : clients) {
             c.close();
+        }
+
+        try {
+            if (insertLatencySink != null) {
+                insertLatencySink.close();
+            }
+            if (readLatencySink != null) {
+                readLatencySink.close();
+            }
+        } catch (IOException e) {
+            log.error("Unable to close stream", e);
         }
 
         log.info("Thread finished");
