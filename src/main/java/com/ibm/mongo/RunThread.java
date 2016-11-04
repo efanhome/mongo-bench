@@ -60,6 +60,8 @@ public class RunThread implements Runnable {
                     .maxWaitTime(120000)
                     .connectTimeout(120000)
                     .socketTimeout(120000)
+                    .heartbeatConnectTimeout(120000)
+                    .serverSelectionTimeout(120000)
                     .build();
             clients[i] = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
         }

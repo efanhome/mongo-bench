@@ -41,6 +41,8 @@ public class LoadThread implements Runnable {
                     .maxWaitTime(120000)
                     .connectTimeout(120000)
                     .socketTimeout(120000)
+                    .heartbeatConnectTimeout(120000)
+                    .serverSelectionTimeout(120000)
                     .build();
             final MongoClient client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
             for (final String name : client.listDatabaseNames()) {
