@@ -2,6 +2,7 @@ package com.ibm.mongo;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientOptions;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
 import org.apache.commons.lang.RandomStringUtils;
 import org.bson.Document;
@@ -39,8 +40,9 @@ public class RunThread implements Runnable {
     private FileOutputStream insertLatencySink;
     private String lineSeparator = System.getProperty("line.separator");
     private String prefixLatencyFile;
+    private int timeoutMs;
 
-    public RunThread(String host, List<Integer> ports, float targetRate, String prefixLatencyFile) {
+    public RunThread(String host, List<Integer> ports, float targetRate, String prefixLatencyFile, int timeout) {
         this.host = host;
         this.ports = ports;
         this.targetRate = targetRate;
@@ -48,6 +50,7 @@ public class RunThread implements Runnable {
             toRead[i] = new Document("_id", i);
         }
         this.prefixLatencyFile = prefixLatencyFile;
+        this.timeoutMs = timeout * 1000;
     }
 
     @Override
@@ -57,11 +60,11 @@ public class RunThread implements Runnable {
         log.info("Opening {} connections", portsLen);
         for (int i = 0; i < portsLen; i++) {
             final MongoClientOptions ops = MongoClientOptions.builder()
-                    .maxWaitTime(120000)
-                    .connectTimeout(120000)
-                    .socketTimeout(120000)
-                    .heartbeatConnectTimeout(120000)
-                    .serverSelectionTimeout(120000)
+                    .maxWaitTime(timeoutMs)
+                    .connectTimeout(timeoutMs)
+                    .socketTimeout(timeoutMs)
+                    .heartbeatConnectTimeout(timeoutMs)
+                    .serverSelectionTimeout(timeoutMs)
                     .build();
             clients[i] = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
         }
@@ -81,6 +84,8 @@ public class RunThread implements Runnable {
         startMillis = System.currentTimeMillis();
         float currentRate = 0;
 
+        int timeouts = 0;
+
         // do the actual benchmark measurements
         try {
             while (!stop.get()) {
@@ -91,11 +96,29 @@ public class RunThread implements Runnable {
                     }
                 }
                 clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
-                if (currentRatio < targetRatio) {
-                    readRecord(clients[clientIdx]);
-                } else {
-                    insertRecord(clients[clientIdx]);
-                }
+                    if (currentRatio < targetRatio) {
+                        try {
+                            readRecord(clients[clientIdx]);
+                        } catch (MongoTimeoutException e) {
+                            timeouts++;
+                            log.warn("Timeout occured while reading from {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
+                            clients[clientIdx].close();
+                            final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
+                            final ServerAddress address = clients[clientIdx].getAddress();
+                            clients[clientIdx] = new MongoClient(address, ops);
+                        }
+                    } else {
+                        try {
+                            insertRecord(clients[clientIdx]);
+                        } catch (MongoTimeoutException e) {
+                            timeouts++;
+                            log.warn("Timeout occured while writing to {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
+                            clients[clientIdx].close();
+                            final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
+                            final ServerAddress address = clients[clientIdx].getAddress();
+                            clients[clientIdx] = new MongoClient(address, ops);
+                        }
+                    }
                 elapsed = System.currentTimeMillis() - startMillis;
             }
         } catch (IOException e) {
@@ -118,7 +141,7 @@ public class RunThread implements Runnable {
             log.error("Unable to close stream", e);
         }
 
-        log.info("Thread finished");
+        log.info("Thread finished with {} timeouts", timeouts);
     }
 
     private void sleep(long ratePause) {

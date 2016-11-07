@@ -22,14 +22,16 @@ public class LoadThread implements Runnable {
     private final int numDocuments;
     private final int docSize;
     private final int maxBatchSize = 1000;
+    private final int timeoutMs;
 
     private final static DecimalFormat decimalFormat = new DecimalFormat("0.0000");
 
-    public LoadThread(String host, List<Integer> ports, int numDocuments, int docSize) {
+    public LoadThread(String host, List<Integer> ports, int numDocuments, int docSize, int timeout) {
         this.host = host;
         this.ports = ports;
         this.numDocuments = numDocuments;
         this.docSize = docSize;
+        this.timeoutMs = timeout * 1000;
     }
 
     @Override
@@ -38,11 +40,11 @@ public class LoadThread implements Runnable {
         for (int i = 0; i < ports.size(); i++) {
             int count = 0, currentBatchSize;
             final MongoClientOptions ops = MongoClientOptions.builder()
-                    .maxWaitTime(120000)
-                    .connectTimeout(120000)
-                    .socketTimeout(120000)
-                    .heartbeatConnectTimeout(120000)
-                    .serverSelectionTimeout(120000)
+                    .maxWaitTime(timeoutMs)
+                    .connectTimeout(timeoutMs)
+                    .socketTimeout(timeoutMs)
+                    .heartbeatConnectTimeout(timeoutMs)
+                    .serverSelectionTimeout(timeoutMs)
                     .build();
             final MongoClient client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
             for (final String name : client.listDatabaseNames()) {

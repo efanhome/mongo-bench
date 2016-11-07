@@ -38,6 +38,7 @@ public class MongoBench {
         ops.addOption("w", "warmup-time", true, "The number of seconds to wait before actually collecting result data");
         ops.addOption("j", "target-rate", true, "Send request at the given rate. Accepts decimal numbers");
         ops.addOption("a", "record-latencies", true, "Set the file prefix to which to write latencies to");
+        ops.addOption("o", "timeout", true, "Set the timeouts in seconds for networking operations");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -52,6 +53,7 @@ public class MongoBench {
         int warmup;
         float rateLimit;
         String latencyFilePrefix;
+        int timeouts;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -140,30 +142,36 @@ public class MongoBench {
             } else {
                 latencyFilePrefix = null;
             }
+            if (cli.hasOption('o')) {
+                timeouts = Integer.parseInt(cli.getOptionValue('o'));
+            } else {
+                timeouts = 30;
+            }
+
 
             log.info("Running phase {}", phase.name());
 
             final MongoBench bench = new MongoBench();
             if (phase == Phase.LOAD) {
-                bench.doLoadPhase(host, ports, numThreads, numDocuments, documentSize);
+                bench.doLoadPhase(host, ports, numThreads, numDocuments, documentSize, timeouts);
             } else {
                 if (numThreads > ports.length) {
                     throw new ParseException("Number of threads must be smaller than number of ports");
                 }
-                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit, latencyFilePrefix);
+                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit, latencyFilePrefix, timeouts);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate, String latencyFilePrefix) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate, String latencyFilePrefix, int timeouts) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
 
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, latencyFilePrefix);
+            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, latencyFilePrefix, timeouts);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -290,7 +298,7 @@ public class MongoBench {
     }
 
 
-    private void doLoadPhase(String host, int[] ports, int numThreads, int numDocuments, int documentSize) {
+    private void doLoadPhase(String host, int[] ports, int numThreads, int numDocuments, int documentSize, int timeouts) {
         if (numThreads > ports.length) {
             log.error("The number of threads ({}) can not be larger than the number of ports ({})", numThreads, ports.length);
             return;
@@ -305,7 +313,7 @@ public class MongoBench {
             portSlice.get(idx).add(ports[i]);
         }
         for (int i = 0; i < numThreads; i++) {
-            LoadThread l = new LoadThread(host, portSlice.get(i), numDocuments, documentSize);
+            LoadThread l = new LoadThread(host, portSlice.get(i), numDocuments, documentSize, timeouts);
             threads.put(l, new Thread(l));
         }
 
