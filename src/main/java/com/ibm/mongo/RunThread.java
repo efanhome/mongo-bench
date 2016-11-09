@@ -1,9 +1,6 @@
 package com.ibm.mongo;
 
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientOptions;
-import com.mongodb.MongoTimeoutException;
-import com.mongodb.ServerAddress;
+import com.mongodb.*;
 import org.apache.commons.lang.RandomStringUtils;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -96,29 +93,31 @@ public class RunThread implements Runnable {
                     }
                 }
                 clientIdx = clientIdx + 1 < clients.length ? clientIdx + 1 : 0;
-                    if (currentRatio < targetRatio) {
-                        try {
-                            readRecord(clients[clientIdx]);
-                        } catch (MongoTimeoutException e) {
-                            timeouts++;
-                            log.warn("Timeout occured while reading from {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
-                            clients[clientIdx].close();
-                            final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
-                            final ServerAddress address = clients[clientIdx].getAddress();
-                            clients[clientIdx] = new MongoClient(address, ops);
-                        }
-                    } else {
-                        try {
-                            insertRecord(clients[clientIdx]);
-                        } catch (MongoTimeoutException e) {
-                            timeouts++;
-                            log.warn("Timeout occured while writing to {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
-                            clients[clientIdx].close();
-                            final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
-                            final ServerAddress address = clients[clientIdx].getAddress();
-                            clients[clientIdx] = new MongoClient(address, ops);
-                        }
+                if (currentRatio < targetRatio) {
+                    try {
+                        readRecord(clients[clientIdx]);
+                    } catch (MongoSocketException | MongoTimeoutException e) {
+                        timeouts++;
+                        log.warn("Timeout occured while reading from {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
+                        final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
+                        final ServerAddress address = clients[clientIdx].getAddress();
+                        clients[clientIdx].close();
+                        clients[clientIdx] = new MongoClient(address, ops);
+                        log.info("Reconnected to {}:{}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort());
                     }
+                } else {
+                    try {
+                        insertRecord(clients[clientIdx]);
+                    } catch (MongoSocketException | MongoTimeoutException e) {
+                        timeouts++;
+                        log.warn("Timeout occured while writing to {}:{}. Trying to reconnect client No. {}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort(), clientIdx);
+                        final MongoClientOptions ops = clients[clientIdx].getMongoClientOptions();
+                        final ServerAddress address = clients[clientIdx].getAddress();
+                        clients[clientIdx].close();
+                        clients[clientIdx] = new MongoClient(address, ops);
+                        log.info("Reconnected to {}:{}", clients[clientIdx].getAddress().getHost(), clients[clientIdx].getAddress().getPort());
+                    }
+                }
                 elapsed = System.currentTimeMillis() - startMillis;
             }
         } catch (IOException e) {
