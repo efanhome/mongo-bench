@@ -39,6 +39,7 @@ public class MongoBench {
         ops.addOption("j", "target-rate", true, "Send request at the given rate. Accepts decimal numbers");
         ops.addOption("a", "record-latencies", true, "Set the file prefix to which to write latencies to");
         ops.addOption("o", "timeout", true, "Set the timeouts in seconds for networking operations");
+        ops.addOption("u", "ssl", false, "Use SSL for MongoDB connections");
         ops.addOption("h", "help", false, "Show this help dialog");
 
         final CommandLineParser parser = new DefaultParser();
@@ -54,6 +55,7 @@ public class MongoBench {
         float rateLimit;
         String latencyFilePrefix;
         int timeouts;
+        boolean sslEnabled;
 
         try {
             final CommandLine cli = parser.parse(ops, args);
@@ -90,8 +92,8 @@ public class MongoBench {
                         }
                     }
                 }
-                ports=new int[tmpPorts.size()];
-                for (int i=0;i<tmpPorts.size();i++) {
+                ports = new int[tmpPorts.size()];
+                for (int i = 0; i < tmpPorts.size(); i++) {
                     ports[i] = tmpPorts.get(i);
                 }
             } else {
@@ -147,31 +149,33 @@ public class MongoBench {
             } else {
                 timeouts = 30;
             }
+            if (cli.hasOption('u')) {
+                sslEnabled = true;
+            } else {
+                sslEnabled = false;
+            }
 
 
             log.info("Running phase {}", phase.name());
 
             final MongoBench bench = new MongoBench();
             if (phase == Phase.LOAD) {
-                bench.doLoadPhase(host, ports, numThreads, numDocuments, documentSize, timeouts);
+                bench.doLoadPhase(host, ports, numThreads, numDocuments, documentSize, timeouts, sslEnabled);
             } else {
-                if (numThreads > ports.length) {
-                    throw new ParseException("Number of threads must be smaller than number of ports");
-                }
-                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit, latencyFilePrefix, timeouts);
+                bench.doRunPhase(host, ports, warmup, duration, numThreads, reportingInterval, rateLimit, latencyFilePrefix, timeouts, sslEnabled);
             }
         } catch (ParseException e) {
             log.error("Unable to parse", e);
         }
     }
 
-    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate, String latencyFilePrefix, int timeouts) {
+    private void doRunPhase(String host, int[] ports, int warmup, int duration, int numThreads, int reportingInterval, float targetRate, String latencyFilePrefix, int timeouts, boolean sslEnabled) {
         log.info("Starting {} threads for {} instances", numThreads, ports.length);
         final Map<RunThread, Thread> threads = new HashMap<RunThread, Thread>(numThreads);
         final List<List<Integer>> slices = createSlices(ports, numThreads);
 
         for (int i = 0; i < numThreads; i++) {
-            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, latencyFilePrefix, timeouts);
+            RunThread t = new RunThread(host, slices.get(i), targetRate / (float) numThreads, latencyFilePrefix, timeouts, sslEnabled);
             threads.put(t, new Thread(t));
         }
         for (final Thread t : threads.values()) {
@@ -287,6 +291,7 @@ public class MongoBench {
 
     private List<List<Integer>> createSlices(int[] ports, int numThreads) {
         final List<List<Integer>> slices = new ArrayList<List<Integer>>(numThreads);
+        if (ports.length >= numThreads) {
         for (int i = 0; i < numThreads; i++) {
             slices.add(new ArrayList<Integer>());
         }
@@ -294,26 +299,35 @@ public class MongoBench {
             int sliceIdx = i % numThreads;
             slices.get(sliceIdx).add(ports[i]);
         }
+        } else {
+            int portIndex = 0;
+            for (int i = 0; i < numThreads; i++) {
+                final List<Integer> portsTmp;
+                if (slices.size() <= i) {
+                    portsTmp = new ArrayList<>();
+                    slices.add(i, portsTmp);
+                } else {
+                    portsTmp = slices.get(i);
+                }
+                portsTmp.add(ports[portIndex++]);
+                if (portIndex == ports.length) {
+                    portIndex = 0;
+                }
+            }
+        }
+        int count = 1;
+        for (List<Integer> portTmp : slices) {
+            System.out.printf("Thread %d will use ports %s\n", count++, portTmp.toString());
+        }
         return slices;
     }
 
 
-    private void doLoadPhase(String host, int[] ports, int numThreads, int numDocuments, int documentSize, int timeouts) {
-        if (numThreads > ports.length) {
-            log.error("The number of threads ({}) can not be larger than the number of ports ({})", numThreads, ports.length);
-            return;
-        }
-        Map<LoadThread, Thread> threads = new HashMap<LoadThread, Thread>(numThreads);
-        final List<List<Integer>> portSlice = new ArrayList<List<Integer>>(numThreads);
-        for (int i = 0; i < ports.length; i++) {
-            int idx = i % numThreads;
-            if (portSlice.size() < idx + 1) {
-                portSlice.add(idx, new ArrayList<Integer>());
-            }
-            portSlice.get(idx).add(ports[i]);
-        }
+    private void doLoadPhase(String host, int[] ports, int numThreads, int numDocuments, int documentSize, int timeouts, boolean sslEnabled) {
+        final Map<LoadThread, Thread> threads = new HashMap<LoadThread, Thread>(numThreads);
+        final List<List<Integer>> slices = createSlices(ports, numThreads);
         for (int i = 0; i < numThreads; i++) {
-            LoadThread l = new LoadThread(host, portSlice.get(i), numDocuments, documentSize, timeouts);
+            LoadThread l = new LoadThread(host, slices.get(i), numDocuments, documentSize, timeouts, sslEnabled);
             threads.put(l, new Thread(l));
         }
 

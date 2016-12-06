@@ -23,15 +23,17 @@ public class LoadThread implements Runnable {
     private final int maxBatchSize = 1000;
     private final int timeoutMs;
     private final Map<String, Integer> failed = new HashMap<>();
+    private final boolean sslEnabled;
 
     private final static DecimalFormat decimalFormat = new DecimalFormat("0.0000");
 
-    public LoadThread(String host, List<Integer> ports, int numDocuments, int docSize, int timeout) {
+    public LoadThread(String host, List<Integer> ports, int numDocuments, int docSize, int timeout, boolean sslEnabled) {
         this.host = host;
         this.ports = ports;
         this.numDocuments = numDocuments;
         this.docSize = docSize;
         this.timeoutMs = timeout * 1000;
+        this.sslEnabled = sslEnabled;
     }
 
     @Override
@@ -45,8 +47,9 @@ public class LoadThread implements Runnable {
                     .socketTimeout(timeoutMs)
                     .heartbeatConnectTimeout(timeoutMs)
                     .serverSelectionTimeout(timeoutMs)
+                    .sslEnabled(sslEnabled)
                     .build();
-            final MongoClient client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
+            MongoClient client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
             for (final String name : client.listDatabaseNames()) {
                 if (name.equalsIgnoreCase(MongoBench.DB_NAME)) {
                     log.warn("Database {} exists and will be purged before inserting", MongoBench.DB_NAME);
@@ -62,9 +65,20 @@ public class LoadThread implements Runnable {
                 try {
                     collection.insertMany(Arrays.asList(docs));
                 } catch (Exception e) {
-                    log.warn("Error while inserting {} documents at {}:{}", currentBatchSize, host, ports.get(i));
-                    failed.put(host + ":" + ports.get(i), numDocuments - count);
-                    break;
+                    log.error("Error while inserting {} documents at {}:{}", currentBatchSize, host, ports.get(i));
+                    log.warn("Checking connection to {}:{}", host, ports.get(i));
+                    boolean connected = false;
+                    try {
+                        while (!connected) {
+                            client.listDatabases();
+                            connected = true;
+                            break;
+                        }
+                    } catch (Exception ie) {
+                        log.error("No connection to {}:{}. Reconnecting...");
+                        client.close();
+                        client = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
+                    }
                 }
                 count += currentBatchSize;
             }
@@ -76,7 +90,7 @@ public class LoadThread implements Runnable {
                 log.error("Errors occured during the loading of the data");
                 for (final Map.Entry<String, Integer> error : failed.entrySet()) {
                     log.error("Unable to insert {} documents at {}:{}", error.getValue(), error.getKey());
-                    numFailed+=error.getValue();
+                    numFailed += error.getValue();
                 }
                 log.error("Overall {} inserts failed", numFailed);
             }

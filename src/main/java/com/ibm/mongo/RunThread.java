@@ -38,8 +38,9 @@ public class RunThread implements Runnable {
     private String lineSeparator = System.getProperty("line.separator");
     private String prefixLatencyFile;
     private int timeoutMs;
+    private final boolean sslEnabled;
 
-    public RunThread(String host, List<Integer> ports, float targetRate, String prefixLatencyFile, int timeout) {
+    public RunThread(String host, List<Integer> ports, float targetRate, String prefixLatencyFile, int timeout, boolean sslEnabled) {
         this.host = host;
         this.ports = ports;
         this.targetRate = targetRate;
@@ -48,6 +49,7 @@ public class RunThread implements Runnable {
         }
         this.prefixLatencyFile = prefixLatencyFile;
         this.timeoutMs = timeout * 1000;
+        this.sslEnabled = sslEnabled;
     }
 
     @Override
@@ -62,6 +64,7 @@ public class RunThread implements Runnable {
                     .socketTimeout(timeoutMs)
                     .heartbeatConnectTimeout(timeoutMs)
                     .serverSelectionTimeout(timeoutMs)
+                    .sslEnabled(sslEnabled)
                     .build();
             clients[i] = new MongoClient(new ServerAddress(host, ports.get(i)), ops);
         }
