@@ -11,7 +11,7 @@ The benchmark is a Java project build with Apache Maven. In order to build the p
 
 ## Usage
 
-The benchmark is written in Java and at least Java 6 is required to run the generated jar file. Since a lot of latency data is recorded per thread, large amounts of memory are needed and the benchmark has to be run with a larger than normal heapsize during the run phase.
+The benchmark is written in Java and at least Java version 6 is required to run the generated jar file. Since a lot of latency data is recorded per thread, large amounts of memory are needed and the benchmark has to be run with a larger than normal heapsize during the run phase.
 
     usage: java -jar mongo-bench-1.0-SNAPSHOT-jar-with-dependencies.jar [options]
 
