@@ -1,6 +1,6 @@
 # Tiny MongoDB Benchmark
 
-This is a benchmark for assessing MongoDB performance in a SaaS environment when running a lot of instances on a single box/VM. The benchmark is split into a load and a run phase. Suring load some random data is inserted into MongoDB and during the run phase the data is retrieved and some new random data is inserted into MongoDB with a read/write ratio of 0.9.
+This is a benchmark for assessing MongoDB performance in a SaaS environment when running a lot of instances on a single box/VM. The benchmark is split into a load and a run phase. During the load phase, random data is inserted into MongoDB, during the run phase the data is retrieved and new random data is inserted into MongoDB with a read/write ratio of 0.9.
 
 ## Building
 
