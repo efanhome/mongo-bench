@@ -39,7 +39,7 @@ Loading `1000` documents of size `1024` bytes each into MongoDB instances on por
 ```
 
 
-Running the benchmark against ports `30001-30010` on the box `9.114.14.14` using 4 threads for `600` seconds with a `60` second warmup time and target an overall rate of `1000` transpactions/second:
+Running the benchmark against ports `30001-30010` on the box `9.114.14.14` using 4 threads for `600` seconds with a `60` second warmup time and target an overall rate of `1000` transactions/second:
 ```bash
 #> java -Xmx16384m -jar /tmp/mongo-bench-1.0-SNAPSHOT-jar-with-dependencies.jar -l run -p 30001-30010 -t 9.114.14.14 -n 4 -w 60 -d 600 -j 1000
 ```
