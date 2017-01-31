@@ -18,7 +18,7 @@ The benchmark is written in Java and at least Java version 6 is required to run 
     Options:
      -c,--num-documents <arg>        The number of documents to create during the load phase
      -d,--duration <arg>             Run the bench for this many seconds
-     -h,--help                       Show this help dialog
+     -h,--help                       Show this help dialogue
      -j,--target-rate <arg>          Send request at the given rate. Accepts decimal numbers
      -l,--phase <arg>                The phase to execute [run|load]
      -n,--num-thread <arg>           The number of threads to run
