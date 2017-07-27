@@ -101,7 +101,7 @@ public class LoadThread implements Runnable {
             }
             client.close();
             long duration = System.currentTimeMillis() - startLoad;
-            float rate = 1000f * 1000f / (float) duration;
+            float rate = numDocuments * 1000f / (float) duration;
             if (failed.size() > 0) {
                 int numFailed = 0;
                 log.error("Errors occured during the loading of the data");
